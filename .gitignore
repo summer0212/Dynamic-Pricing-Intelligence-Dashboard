@@ -1,0 +1,25 @@
+# Secrets
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+.gemini/
+
+# OS
+.DS_Store
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Node (for frontend later)
+node_modules/
+.next/
