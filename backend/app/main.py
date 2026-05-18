@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.auth import router as auth_router
 from app.routes.products import router as products_router
+from app.routes.recommendations import router as recommendations_router
 
 app = FastAPI(
     title="Dynamic Pricing Intelligence Dashboard",
@@ -19,6 +20,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(products_router)
+app.include_router(recommendations_router)
 
 
 @app.get("/health")
