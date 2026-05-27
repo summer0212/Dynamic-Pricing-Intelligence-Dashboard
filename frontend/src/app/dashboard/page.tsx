@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getProducts, getRecommendations } from "@/lib/api";
+import { getProducts, getRecommendations, scrapeCompetitors } from "@/lib/api";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -10,6 +10,19 @@ export default function DashboardPage() {
   const [role, setRole] = useState("");
   const [loading, setLoading] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
+  const [scrapingId, setScrapingId] = useState<string | null>(null);
+
+  const handleScrape = async (productId: string) => {
+    try {
+      setScrapingId(productId);
+      const res = await scrapeCompetitors(productId);
+      alert(`Success! ${res.detail}`);
+    } catch (err: any) {
+      alert(`Failed to scrape: ${err.message}`);
+    } finally {
+      setScrapingId(null);
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -93,6 +106,7 @@ export default function DashboardPage() {
                 <th className="text-left px-6 py-3 text-gray-400 text-sm">Category</th>
                 <th className="text-right px-6 py-3 text-gray-400 text-sm">Price</th>
                 <th className="text-right px-6 py-3 text-gray-400 text-sm">Stock</th>
+                <th className="text-right px-6 py-3 text-gray-400 text-sm">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -107,6 +121,17 @@ export default function DashboardPage() {
                   </td>
                   <td className="px-6 py-4 text-right">₹{p.current_price.toLocaleString()}</td>
                   <td className="px-6 py-4 text-right">{p.inventory_count}</td>
+                  <td className="px-6 py-4 text-right">
+                    {role === "admin" && (
+                      <button
+                        onClick={() => handleScrape(p.id)}
+                        disabled={scrapingId === p.id}
+                        className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded shadow disabled:opacity-50 transition-colors"
+                      >
+                        {scrapingId === p.id ? "Scraping Web..." : "Scrape Competitors"}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

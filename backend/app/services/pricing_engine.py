@@ -51,12 +51,12 @@ class PricingRecommendation(BaseModel):
 PRICING_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a senior pricing intelligence analyst for an e-commerce platform.
 Your job is to analyze product data and recommend an OPTIMIZED price that maximizes revenue.
-You MUST recommend a price change (increase or decrease) for almost every product.
 
 PRICING STRATEGY RULES:
 1. The recommended price MUST always be above cost price × (1 + margin_threshold/100)
 2. Price changes should be between 2% and 15% of the current price — NEVER more than 15%
-3. You MUST recommend either an increase or decrease — "maintain" is ONLY acceptable when the product is perfectly priced (which is rare)
+3. You MUST stay within the PRICE DRIFT GUARDRAIL — see below
+4. Recommend 'maintain' when the price is already near its optimal range or near the guardrail ceiling
 
 INVENTORY-BASED PRICING SIGNALS:
 - Under 50 units (low stock): INCREASE price by 5-12% (scarcity pricing)
@@ -68,6 +68,13 @@ MARGIN ANALYSIS:
 - If current margin is well above the threshold, there is room to decrease price to drive volume
 - If current margin is close to the threshold, consider increasing price to protect margin
 - The minimum margin threshold for this org is: {margin_threshold_pct}%
+
+PRICE DRIFT GUARDRAIL (MOST IMPORTANT RULE):
+- The base/original price of this product is: ₹{base_price}
+- Your recommended price MUST be between ₹{min_allowed_price} and ₹{max_allowed_price}
+- If the current price is ALREADY above the base price, prefer 'maintain' or a small decrease
+- If the current price equals or exceeds the max allowed, you MUST recommend 'decrease' or 'maintain'
+- Never recommend pushing the price higher if it is already near or above ₹{max_allowed_price}
 
 CONFIDENCE SCORING:
 - 0.85-0.95: Strong signal (competitor data available OR clear inventory signal)
@@ -82,11 +89,14 @@ PRODUCT INFORMATION:
 - Name: {product_name}
 - SKU: {product_sku}
 - Category: {category}
+- Original / Base Price: ₹{base_price}
 - Current Selling Price: ₹{current_price}
+- Price vs Base: {price_vs_base}
 - Cost Price: ₹{cost_price}
 - Current Margin: {current_margin_pct}%
 - Inventory: {inventory_count} units
 - Minimum Margin Threshold: {margin_threshold_pct}%
+- Allowed Price Range: ₹{min_allowed_price} — ₹{max_allowed_price}
 
 {competitor_section}
 
@@ -162,8 +172,25 @@ def generate_prediction(
     """
     current = float(product.current_price)
     cost = float(product.cost_price)
+    # Use base_price as the anchor; fall back to current_price for legacy rows without it
+    base = float(product.base_price) if product.base_price else current
     margin_pct = ((current - cost) / current * 100) if current > 0 else 0
     margin_threshold = float(product.margin_threshold) * 100
+
+    # ── Drift guardrail bounds (±25% from base_price) ────────────────
+    DRIFT_CAP = 0.25
+    min_margin_price = cost * (1 + float(product.margin_threshold))
+    max_allowed = round(base * (1 + DRIFT_CAP), 2)
+    min_allowed = round(max(base * (1 - DRIFT_CAP), min_margin_price), 2)
+
+    # Human-readable drift label for the prompt
+    drift_pct = ((current - base) / base * 100) if base > 0 else 0
+    if drift_pct > 0:
+        price_vs_base = f"+{drift_pct:.1f}% above base (drifting UP — caution on further increases)"
+    elif drift_pct < 0:
+        price_vs_base = f"{drift_pct:.1f}% below base (drifting DOWN — room to increase)"
+    else:
+        price_vs_base = "At base price (no drift yet)"
 
     try:
         structured_llm = _get_llm()
@@ -173,11 +200,15 @@ def generate_prediction(
             "product_name": product.name,
             "product_sku": product.sku,
             "category": product.category,
+            "base_price": f"{base:,.2f}",
             "current_price": f"{current:,.2f}",
+            "price_vs_base": price_vs_base,
             "cost_price": f"{cost:,.2f}",
             "current_margin_pct": f"{margin_pct:.1f}",
             "inventory_count": product.inventory_count,
             "margin_threshold_pct": f"{margin_threshold:.0f}",
+            "max_allowed_price": f"{max_allowed:,.2f}",
+            "min_allowed_price": f"{min_allowed:,.2f}",
             "competitor_section": _build_competitor_section(competitor_prices or []),
             "org_rules_section": _build_org_rules_section(org_settings, product.category),
         }
@@ -186,15 +217,22 @@ def generate_prediction(
         chain = PRICING_PROMPT | structured_llm
         result: PricingRecommendation = chain.invoke(prompt_inputs)
 
-        # Validate: ensure recommended price is above cost with minimum margin
-        min_price = cost * (1 + float(product.margin_threshold))
+        # ── Post-LLM validation: enforce drift cap hard ───────────────
         recommended = result.recommended_price
-        if recommended < min_price:
+
+        if recommended > max_allowed:
             logger.warning(
-                f"LLM recommended ₹{recommended:.2f} below min margin for {product.name}. "
-                f"Flooring to ₹{min_price:.2f}"
+                f"LLM recommended ₹{recommended:.2f} exceeds drift ceiling ₹{max_allowed:.2f} "
+                f"for {product.name}. Capping."
             )
-            recommended = min_price
+            recommended = max_allowed
+
+        if recommended < min_allowed:
+            logger.warning(
+                f"LLM recommended ₹{recommended:.2f} below drift floor ₹{min_allowed:.2f} "
+                f"for {product.name}. Flooring."
+            )
+            recommended = min_allowed
 
         recommended_price = _round(recommended)
         confidence = _round(max(0.60, min(0.95, result.confidence_score)))
@@ -206,14 +244,18 @@ def generate_prediction(
             "direction": result.direction,
             "competitor_data_available": bool(competitor_prices),
             "competitor_count": len(competitor_prices) if competitor_prices else 0,
-            "margin_validated": True,
-            "price_floored": recommended != result.recommended_price,
+            "base_price": base,
+            "max_allowed_price": max_allowed,
+            "min_allowed_price": min_allowed,
+            "drift_pct_from_base": round(drift_pct, 2),
+            "price_capped": recommended != result.recommended_price,
         }
 
         logger.info(
             f"AI prediction for {product.name}: "
             f"₹{current:,.0f} → ₹{float(recommended_price):,.0f} "
-            f"({result.direction}, conf={float(confidence):.0%})"
+            f"({result.direction}, conf={float(confidence):.0%}, "
+            f"base=₹{base:,.0f}, drift={drift_pct:+.1f}%)"
         )
 
         return {
@@ -225,22 +267,26 @@ def generate_prediction(
 
     except Exception as e:
         logger.error(f"LLM call failed for {product.name}: {e}. Falling back to heuristic.")
-        return _fallback_prediction(product)
+        return _fallback_prediction(product, base, max_allowed, min_allowed)
 
 
 # ─── Fallback (Heuristic) ────────────────────────────────────────────
 
-def _fallback_prediction(product: Product) -> dict:
+def _fallback_prediction(
+    product: Product,
+    base: float,
+    max_allowed: float,
+    min_allowed: float,
+) -> dict:
     """
     Simple heuristic fallback when the LLM is unavailable.
-    Kept from the original mock engine for resilience.
+    Now also respects the ±25% drift guardrail from base_price.
     """
     current = float(product.current_price)
-    cost = float(product.cost_price)
     inventory = product.inventory_count
 
     if inventory < 50:
-        pct_change = random.uniform(0.05, 0.15)
+        pct_change = random.uniform(0.05, 0.12)
         direction = "increase"
         reason = f"Low inventory ({inventory} units) — scarcity pricing applied"
     elif inventory > 250:
@@ -257,12 +303,13 @@ def _fallback_prediction(product: Product) -> dict:
     else:
         recommended = current * (1 - pct_change)
 
-    min_price = cost * 1.05
-    if recommended < min_price:
-        recommended = min_price
+    # Apply the same ±25% drift guardrail as the main AI path
+    recommended = max(min_allowed, min(max_allowed, recommended))
 
     recommended_price = _round(recommended)
     confidence = _round(random.uniform(0.60, 0.75))  # Lower confidence for fallback
+
+    drift_pct = ((current - base) / base * 100) if base > 0 else 0
 
     return {
         "recommended_price": recommended_price,
@@ -274,6 +321,10 @@ def _fallback_prediction(product: Product) -> dict:
             "factors_analyzed": ["inventory_level", "cost_margin"],
             "direction": direction,
             "competitor_data_available": False,
+            "base_price": base,
+            "max_allowed_price": max_allowed,
+            "min_allowed_price": min_allowed,
+            "drift_pct_from_base": round(drift_pct, 2),
             "fallback_reason": "LLM unavailable",
         },
     }

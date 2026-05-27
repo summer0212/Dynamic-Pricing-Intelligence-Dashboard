@@ -14,6 +14,9 @@ class Product(Base):
     sku = Column(String(50), nullable=False)
     category = Column(String(100), nullable=False)
     current_price = Column(Numeric(10, 2), nullable=False)
+    base_price = Column(Numeric(10, 2), nullable=True)   # Original price — never changes, used as drift anchor
+    min_price = Column(Numeric(10, 2), nullable=True)    # Floor — minimum selling price (usually cost + small margin)
+    mrp = Column(Numeric(10, 2), nullable=True)          # Maximum Retail Price — legal ceiling in India
     cost_price = Column(Numeric(10, 2), nullable=False)
     inventory_count = Column(Integer, nullable=False, default=0)
     margin_threshold = Column(Numeric(5, 2), default=0.15)

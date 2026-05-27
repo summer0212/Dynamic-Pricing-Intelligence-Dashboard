@@ -26,21 +26,26 @@ analyst1 = User(email="analyst@techcorp.com", password_hash=hash_password("analy
                 name="Analyst TechCorp", org_id=org1.id, role=UserRole.analyst)
 db.add_all([admin1, analyst1])
 
+# Columns: name, sku, category, current_price, cost_price, inventory, margin_threshold, min_price, mrp
 products_data = [
-    ("Sony WH-1000XM5", "SONY-WH1000", "electronics", 24990, 18000, 150, 0.15),
-    ("Samsung Galaxy S24", "SAM-S24", "electronics", 79999, 55000, 80, 0.20),
-    ("Nike Air Max 90", "NIKE-AM90", "apparel", 12995, 7000, 200, 0.25),
-    ("Dyson V15 Detect", "DYS-V15", "home_goods", 52990, 35000, 45, 0.15),
-    ("Apple AirPods Pro", "APL-APP2", "electronics", 24900, 17000, 120, 0.18),
-    ("Levi's 501 Jeans", "LEV-501", "apparel", 4999, 2500, 300, 0.20),
-    ("Instant Pot Duo", "IP-DUO", "home_goods", 8999, 5500, 90, 0.15),
-    ("JBL Flip 6", "JBL-FL6", "electronics", 9999, 6000, 175, 0.18),
+    ("Sony WH-1000XM5",   "SONY-WH1000", "electronics", 24990, 18000, 150, 0.15, 19800, 29990),
+    ("Samsung Galaxy S24", "SAM-S24",     "electronics", 79999, 55000,  80, 0.20, 61000, 89999),
+    ("Nike Air Max 90",    "NIKE-AM90",   "apparel",     12995,  7000, 200, 0.25,  8500, 16995),
+    ("Dyson V15 Detect",   "DYS-V15",    "home_goods",  52990, 35000,  45, 0.15, 39000, 62990),
+    ("Apple AirPods Pro",  "APL-APP2",   "electronics", 24900, 17000, 120, 0.18, 18900, 29900),
+    ("Levi's 501 Jeans",   "LEV-501",    "apparel",      4999,  2500, 300, 0.20,  3200,  6499),
+    ("Instant Pot Duo",    "IP-DUO",     "home_goods",   8999,  5500,  90, 0.15,  6500, 10999),
+    ("JBL Flip 6",         "JBL-FL6",   "electronics",  9999,  6000, 175, 0.18,  7500, 12999),
 ]
 
-for name, sku, cat, price, cost, inv, margin in products_data:
-    p = Product(org_id=org1.id, name=name, sku=sku, category=cat,
-                current_price=price, cost_price=cost, inventory_count=inv,
-                margin_threshold=margin)
+for name, sku, cat, price, cost, inv, margin, min_p, mrp in products_data:
+    p = Product(
+        org_id=org1.id, name=name, sku=sku, category=cat,
+        current_price=price, base_price=price,   # base_price = original seed price
+        cost_price=cost, inventory_count=inv,
+        margin_threshold=margin,
+        min_price=min_p, mrp=mrp,
+    )
     db.add(p)
 
 # --- Org 2: RetailHub ---
@@ -56,15 +61,19 @@ admin2 = User(email="admin@retailhub.com", password_hash=hash_password("admin123
 db.add(admin2)
 
 products_data2 = [
-    ("Boat Airdopes 141", "BOAT-AD141", "electronics", 1299, 600, 500, 0.30),
-    ("H&M Basic Tee", "HM-BTEE", "apparel", 799, 300, 1000, 0.25),
-    ("Prestige Induction", "PRE-IND", "home_goods", 2999, 1800, 60, 0.15),
+    ("Boat Airdopes 141", "BOAT-AD141", "electronics", 1299,  600, 500, 0.30,  799, 1999),
+    ("H&M Basic Tee",     "HM-BTEE",   "apparel",      799,  300, 1000, 0.25, 499,  999),
+    ("Prestige Induction", "PRE-IND",  "home_goods",  2999, 1800,  60, 0.15, 2200, 3999),
 ]
 
-for name, sku, cat, price, cost, inv, margin in products_data2:
-    p = Product(org_id=org2.id, name=name, sku=sku, category=cat,
-                current_price=price, cost_price=cost, inventory_count=inv,
-                margin_threshold=margin)
+for name, sku, cat, price, cost, inv, margin, min_p, mrp in products_data2:
+    p = Product(
+        org_id=org2.id, name=name, sku=sku, category=cat,
+        current_price=price, base_price=price,
+        cost_price=cost, inventory_count=inv,
+        margin_threshold=margin,
+        min_price=min_p, mrp=mrp,
+    )
     db.add(p)
 
 db.commit()

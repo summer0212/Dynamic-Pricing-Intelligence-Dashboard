@@ -47,6 +47,12 @@ export async function deleteProduct(id: string) {
   return apiCall(`/api/products/${id}`, { method: "DELETE" });
 }
 
+export async function scrapeCompetitors(productId: string) {
+  return apiCall(`/api/products/${productId}/scrape-competitors`, {
+    method: "POST"
+  });
+}
+
 // Recommendations
 export async function getRecommendations(status?: string) {
   const query = status ? `?status=${status}` : "";

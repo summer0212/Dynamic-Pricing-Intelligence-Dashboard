@@ -1,3 +1,4 @@
+import random
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -213,6 +214,27 @@ def review_recommendation(
 
         # Update product price
         product.current_price = rec.recommended_price
+
+        # ── Inventory simulation ──────────────────────────────────────
+        # When a price is approved, we simulate the demand response:
+        # - Price INCREASED → product is more expensive → sells slower
+        #   → inventory drops only a little (2–8 units)
+        # - Price DECREASED → product is cheaper → demand spikes
+        #   → inventory drops faster (10–25 units)
+        # This prevents inventory from staying frozen and ensures the AI
+        # sees changing stock levels on subsequent prediction runs.
+        direction = (
+            rec.agent_outputs.get("direction", "maintain")
+            if rec.agent_outputs else "maintain"
+        )
+        if direction == "increase":
+            units_sold = random.randint(2, 8)
+        elif direction == "decrease":
+            units_sold = random.randint(10, 25)
+        else:
+            units_sold = random.randint(3, 10)   # maintain: normal sales rate
+
+        product.inventory_count = max(0, product.inventory_count - units_sold)
 
         # Create audit log
         audit = AuditLog(

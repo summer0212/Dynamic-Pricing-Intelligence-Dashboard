@@ -5,7 +5,9 @@ from app.database import get_db
 from app.middleware.auth_middleware import get_current_user
 from app.models.user import User, UserRole
 from app.models.product import Product
+from app.models.competitor_price import CompetitorPrice
 from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
+from app.services.competitor_agent import scrape_competitor_prices
 
 router = APIRouter(
     prefix="/api/products",
@@ -131,3 +133,45 @@ def delete_product(
     db.delete(product)
     db.commit()
     return {"detail": "Product deleted"}
+
+
+@router.post("/{product_id}/scrape-competitors")
+def scrape_and_save_competitors(
+    product_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """Trigger the Competitor Agent to find live prices on the web. Admin only."""
+    if user.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Only admins can scrape competitors")
+    
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.org_id == user.org_id
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # 1. Trigger Agent
+    extracted_prices = scrape_competitor_prices(product.name)
+    
+    if not extracted_prices:
+        return {"detail": "Agent could not find any clear competitor prices on the web."}
+
+    # 2. Save to database
+    saved_records = []
+    for comp in extracted_prices:
+        new_comp = CompetitorPrice(
+            product_id=product.id,
+            competitor_name=comp["competitor_name"],
+            price=comp["price"]
+        )
+        db.add(new_comp)
+        saved_records.append(new_comp)
+        
+    db.commit()
+    
+    return {
+        "detail": f"Agent successfully found {len(saved_records)} competitor prices.",
+        "data": extracted_prices
+    }
