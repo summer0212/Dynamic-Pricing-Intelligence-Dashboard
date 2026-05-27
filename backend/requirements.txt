@@ -19,13 +19,12 @@ pydantic-settings>=2.0.0
 langchain>=0.3.0
 langchain-groq>=0.2.0
 
+# Web scraping (Competitor Agent)
+requests>=2.31.0
+lxml>=5.0.0
+
 # Temporal
 temporalio>=1.7.0
 
 # Environment
 python-dotenv>=1.0.0
-
-# CORS (frontend will need this)
-
-duckduckgo-search
-langchain-community
